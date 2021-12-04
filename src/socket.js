@@ -1,5 +1,6 @@
 const { Server } = require("socket.io");
 const game = require("./Game");
+const Roles = require("./utils/Roles");
 
 function socket(server) {
     const io = new Server(server, {
@@ -12,6 +13,7 @@ function socket(server) {
 
     io.on("connection", (socket) => {
         if (game.isRunning) {
+            socket.emit("error", "Şuanda devam eden bir oyun var");
             socket.disconnect();
             return;
         }
@@ -20,6 +22,11 @@ function socket(server) {
 
         socket.on("login", (name) => {
             if (game.isRunning) return;
+            if (game.getUsers().find((x) => x.name === name)) {
+                socket.emit("error", "Bu isim alınmış");
+                return;
+            }
+
             console.log(`Bir kullanıcı lobiye bağlandı ${name}`);
             game.addUser(socket.id, name);
             socket.emit("loggedIn", game.getUser(socket.id));
@@ -32,7 +39,7 @@ function socket(server) {
                 game.assignRoles();
                 io.emit("gameBegin", {
                     msg: "Gün " + game.days,
-                    users: game.getAliveUsers()
+                    users: game.getUsers()
                 });
             } else {
                 io.emit("updateUsers", game.getUsers());
@@ -41,33 +48,35 @@ function socket(server) {
 
         socket.on("vote", ({ voterId, victimId }) => {
             game.useVote(voterId, victimId);
-            io.emit("updateUsers", game.getAliveUsers());
+            io.emit("updateUsers", game.getUsers());
             if (!game.isEveryoneVoted()) return;
             const victim = game.getMostVotedUser();
             if (!victim) return;
-            victim.isDead = true;
-            io.emit("updateUsers", game.getAliveUsers());
+
+            game.executeVictim(victim);
+
+            io.emit("updateUsers", game.getUsers());
 
             // Is game over
-            if (victim.role === "Vampir") {
+            if (victim.role === Roles.Vampire) {
                 io.emit("gameOver", { msg: "Köylüler kazandı", vampire: victim });
                 game.isRunning = false;
                 return;
             }
             if (
                 game.getAliveUsers().length <= 2 &&
-                game.getAliveUsers().some((user) => user.role === "Vampir")
+                game.getAliveUsers().some((user) => user.role === Roles.Vampire)
             ) {
                 io.emit("gameOver", {
                     msg: "Vampir kazandı",
-                    vampire: game.getUsers().filter((user) => user.role === "Vampir")[0]
+                    vampire: game.getUsers().filter((user) => user.role === Roles.Vampire)[0]
                 });
                 game.isRunning = false;
                 return;
             }
             io.emit("nightBegin", {
                 msg: `${victim.name} ${victim.role} idam edilerek öldürüldü"`,
-                users: game.getAliveUsers()
+                users: game.getUsers()
             });
         });
 
@@ -82,7 +91,10 @@ function socket(server) {
             const doctor = game.getUser(doctorId);
             const user = game.getUser(userId);
             if (!doctor || !user || doctorId === userId || doctor.role !== "Doktor") return;
-
+            const oldProtected = game.getTheProtected();
+            if (oldProtected) {
+                oldProtected.isProtected = false;
+            }
             user.isProtected = true;
             console.log(doctor + " " + user + "kişisini korudu");
             setUserReady(doctor);
@@ -92,9 +104,11 @@ function socket(server) {
             const vampire = game.getUser(vampireId);
             const user = game.getUser(userId);
             if (!vampire || !user || vampireId === userId || vampire.role !== "Vampir") return;
-
+            const oldVictim = game.getTheVictim();
+            if (oldVictim) {
+                oldVictim.isTheVictim = false;
+            }
             user.isTheVictim = true;
-            console.log(vampire + " " + user + "kişisini öldürecek");
             setUserReady(vampire);
         });
 
@@ -102,25 +116,25 @@ function socket(server) {
             console.log("User disconnect", socket.id);
             game.removeUser(socket.id);
             game.removeConnection();
+            if (io.sockets.sockets.size <= 0) {
+                game.isRunning = false;
+            }
             io.emit("updateUsers", game.getUsers());
         });
 
         function setUserReady(user) {
             user.isReady = true;
-            console.log(user?.name + "hazir verdi");
+            io.emit("updateUsers", game.getUsers());
             const isEveryoneReady = game.getAliveUsers().every((user) => user.isReady === true);
             if (!isEveryoneReady) return;
             const victim = game.getTheVictim();
             const protected = game.getTheProtected();
 
-            console.log("Victim: " + victim?.name);
-            console.log("Protected: " + protected?.name);
-
-            if (victim?.id === protected?.id) {
+            if (victim.id === protected.id) {
                 game.nextDay();
                 io.emit("gameBegin", {
                     msg: "Yeni bir güne başlandı kimse ölmedi" + game.days,
-                    users: game.getAliveUsers()
+                    users: game.getUsers()
                 });
             } else {
                 victim.isDead = true;
@@ -137,7 +151,7 @@ function socket(server) {
                 } else
                     io.emit("gameBegin", {
                         msg: `Yeni bir güne başlandı gece ${victim.name} öldü!`,
-                        users: game.getAliveUsers()
+                        users: game.getUsers()
                     });
             }
         }
