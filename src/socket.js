@@ -17,17 +17,22 @@ function socket(server) {
             socket.disconnect();
             return;
         }
-        console.log("A user connected " + socket.id);
         game.addConnection(socket.id);
 
         socket.on("login", (name) => {
-            if (game.isRunning) return;
+            if (game.isRunning) {
+                socket.emit("error", "Şuanda devam eden bir oyun var");
+                return;
+            }
             if (game.getUsers().find((x) => x.name === name)) {
                 socket.emit("error", "Bu isim alınmış");
                 return;
             }
+            if (name.length < 3 || name.length > 10) {
+                socket.emit("error", "İsim 3 ila 10 karakter uzunluğunda olmalı");
+                return;
+            }
 
-            console.log(`Bir kullanıcı lobiye bağlandı ${name}`);
             game.addUser(socket.id, name);
             socket.emit("loggedIn", game.getUser(socket.id));
             io.emit("updateUsers", game.getUsers());
@@ -75,7 +80,7 @@ function socket(server) {
                 return;
             }
             io.emit("nightBegin", {
-                msg: `${victim.name} ${victim.role} idam edilerek öldürüldü"`,
+                msg: `${victim.name} adlı ${victim.role.toLowerCase()} idam edilerek öldürüldü"`,
                 users: game.getUsers()
             });
         });
@@ -133,7 +138,7 @@ function socket(server) {
             if (victim.id === protected.id) {
                 game.nextDay();
                 io.emit("gameBegin", {
-                    msg: "Yeni bir güne başlandı kimse ölmedi" + game.days,
+                    msg: "Yeni bir güne başlandı kimse ölmedi",
                     users: game.getUsers()
                 });
             } else {
@@ -150,7 +155,9 @@ function socket(server) {
                     return;
                 } else
                     io.emit("gameBegin", {
-                        msg: `Yeni bir güne başlandı gece ${victim.name} öldü!`,
+                        msg: `Yeni bir güne başlandı gece ${
+                            victim.name
+                        } adlı ${victim.role.toLowerCase()} öldü!`,
                         users: game.getUsers()
                     });
             }
