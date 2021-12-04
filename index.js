@@ -9,7 +9,7 @@ const routes = require("./src/routes");
 const app = express();
 const server = http.createServer(app);
 socket(server);
-const port = 5000;
+const port = process.env.PORT || 5000;
 
 app.use(cors());
 app.use(bodyParser.json({ limit: "10mb" }));
@@ -17,5 +17,5 @@ app.use(routes);
 app.use(ExceptionMiddleware);
 
 server.listen(port, () => {
-  console.log(`Example app listening at http://localhost:${port}`);
+    console.log(`Example app listening at http://localhost:${port}`);
 });
